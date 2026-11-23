@@ -1,0 +1,56 @@
+name: Lab 24 verification
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+  packages: write
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: FreMinEr/nodejs-labs-477
+          ref: feature/lab-24
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: lab24/package-lock.json
+      - name: Install
+        working-directory: lab24
+        run: npm ci --no-audit --no-fund
+      - name: Lint
+        working-directory: lab24
+        run: npm run lint
+      - name: Tests and coverage
+        working-directory: lab24
+        env:
+          LOG_LEVEL: silent
+        run: npm run test:coverage
+      - name: Build and deploy temporary staging
+        working-directory: lab24
+        run: bash scripts/ci.sh
+      - name: Publish image to GHCR
+        working-directory: lab24
+        env:
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker tag lab24-api:local ghcr.io/freminer/nodejs-lab24:${{ github.run_number }}
+          docker push ghcr.io/freminer/nodejs-lab24:${{ github.run_number }}
+      - name: Save reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lab24-reports
+          path: |
+            lab24/coverage
+            lab24/compose.log
+      - name: Stop temporary staging
+        if: always()
+        working-directory: lab24
+        run: docker compose down
